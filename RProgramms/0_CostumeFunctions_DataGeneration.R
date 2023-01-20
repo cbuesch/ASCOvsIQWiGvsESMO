@@ -68,10 +68,12 @@ sample.size.func <- function(alpha, beta, n.proportion, HR, median.control,
 }
 
 #----------- Data Generation of exponential distributed failure times ----------
+#--------------- with a combination of administrative censoring ----------------
+#-------------------- and independent exponential censoring --------------------
 DataEXP <- function(n.T, n.C, median.control, accrual.time, fu.time, HR, HR.var,
-                    cens.rate, index.seed) {
+                    lambda.cens, index.seed) {
 ## Generating of survival data with exponential distributed failure times
-## with censoring (administrative and specific censoring)
+## with censoring (administrative and independent exponential censoring)
 ## Parameters:
   # n.T:            number of patients in treatment group
   # n.C:            number of patients in control group
@@ -81,7 +83,7 @@ DataEXP <- function(n.T, n.C, median.control, accrual.time, fu.time, HR, HR.var,
   # HR:             hazard ratio of treatment against control
   # HR.var:         variation of the true HR and design HR.
   #                     1 --> design.HR = true.HR
-  # cens.rate:      censoring rate
+  # lambda.cens:    lambda of exponential distributed censoring
   # index.seed:     seed for the simulation
 
 ## Setting seed
@@ -94,61 +96,36 @@ DataEXP <- function(n.T, n.C, median.control, accrual.time, fu.time, HR, HR.var,
   mytimes   <- c(mytimes.C, mytimes.T)
 
 
-## Censoring with combination of administrative censoring and specific censoring
-## rate
-  # Administrative censoring
-  cens.times.AC <- runif(n.C+n.T, min = 0, max = accrual.time) + fu.time
-
-  # Help data frame
-  Data.help <- data.frame(id = 1:(n.C + n.T), T = mytimes,
-                          Z = factor(c(rep("Control",n.C), rep("Treatment",n.T))),
-                          C = cens.times.AC)
-  Data.help$status <- factor(as.numeric(Data.help$T <= Data.help$C))
-  Data.help$TandC  <- pmin(Data.help$T,Data.help$C)
-
-  # Specific censoring rate of the remaining events "mytimes.AC"
-    mytimes.AC <- Data.help$T[which(Data.help$status==1)]
-    # calculating needed censoring rate to receive overall censoring rate of
-    # cens.rate
-    current.CensoringRate <- 1 # of Data.help$status==1 --> always 100%
-    needed.CensoringRate  <-
-      (cens.rate * dim(Data.help)[1] -
-         sum(Data.help$status==0)*current.CensoringRate) /
-      sum(Data.help$status==1)
-    # if administrative censoring rate is already larger than wanted censoring
-    # rate of cens.rate, no specific censoring rate is added
-    if (needed.CensoringRate > 0){
-      cens.times.SC <-
-        sapply(mytimes.AC,
-               function(mytimes.AC, needed.CensoringRate){
-                 rexp(1, rate = -log(1-needed.CensoringRate)/mytimes.AC)
-               },
-               needed.CensoringRate)
-    }else{
-      # if administrative censoring rate is already larger than wanted censoring
-      # rate of cens.rate, no specific censoring rate is added
-      # --> Setting censoring added censoring rates to Infinity
-      # --> event rates are always smaller than specific censoring rates
-      cens.times.SC <- rep(Inf, length(mytimes.AC))
-    }
-
-## Final data frame
-  Data <- Data.help
-  Data$C[which(Data$status==1)] <- cens.times.SC
-  Data$status <- factor(as.numeric(Data$T <= Data$C))
-  Data$TandC  <- pmin(Data$T,Data$C)
-
+## Censoring with combination of administrative censoring and independent 
+## exponential censoring
+  # Censoring and accrual time
+  cens.time <- c(rexp(n.C, rate = lambda.cens),
+                 rexp(n.T, rate = lambda.cens))
+  acc.time  <- runif(n.C+n.T, min = 0, max = accrual.time)
+  
+## Final data Frame
+  Data <- data.frame(
+    id = 1:(n.C + n.T), 
+    T = mytimes, 
+    Z = factor(c(rep("Control",n.C), rep("Treatment",n.T))),
+    cens.time = cens.time, acc.time = acc.time
+  )
+  Data$TandC  <- pmin(Data$T, Data$cens.time, fu.time+accrual.time - Data$acc.time)
+  Data$status <- factor(ifelse(Data$T<=pmin(Data$cens.time, fu.time+accrual.time - Data$acc.time), 1, 0))
+  
   Data.out <- data.frame(Data$TandC, Data$status, Data$Z)
 
 ## Returning data
-return(Data.out)
+  return(Data.out)
 }
 
 #------------- Data Generation of Weibull distributed failure times ------------
+#--------------- with a combination of administrative censoring ----------------
+#-------------------- and independent exponential censoring --------------------
 DataWEIB <- function(n.T, n.C, median.control, accrual.time, fu.time, HR, HR.var,
-                    cens.rate, shape.C.T, index.seed) {
+                     lambda.cens, shape.C.T, index.seed) {
 ## Generating of survival data with Weibull distributed failure times
-## with censoring (administrative and specific censoring)
+## with censoring (administrative and independent exponential censoring)
 ## Parameters:
   # n.T:            number of patients in treatment group
   # n.C:            number of patients in control group
@@ -158,7 +135,7 @@ DataWEIB <- function(n.T, n.C, median.control, accrual.time, fu.time, HR, HR.var
   # HR:             hazard ratio of treatment against control
   # HR.var:         variation of the true HR and design HR.
   #                     1 --> design.HR = true.HR
-  # cens.rate:      censoring rate, censoring exponential distributed
+  # lambda.cens:    lambda of exponential distributed censoring
   # shape.C.T:      shape parameter for control and treatment group
   # index.seed:     seed for the simulation
 
@@ -166,70 +143,49 @@ DataWEIB <- function(n.T, n.C, median.control, accrual.time, fu.time, HR, HR.var
   set.seed(index.seed)
 
 ## Event times
-  mytimes.C <- rweibull(
-    n.C, shape = shape.C.T,
-    scale = median.control/((log(2))^(1/shape.C.T)) )
-  mytimes.T <- rweibull(
-    n.C, shape = shape.C.T,
-    scale = (median.control^shape.C.T / (HR*HR.var*log(2)))^(1/shape.C.T) )
+  mytimes.C = rweibull(
+    n.C, 
+    shape = shape.C.T, 
+    scale = median.control/((log(2))^(1/shape.C.T)) 
+  )
+  mytimes.T = rweibull(
+    n.C, 
+    shape = shape.C.T, 
+    scale = (median.control^shape.C.T / (HR*HR.var*log(2)))^(1/shape.C.T) 
+  )
   # Combining event times of both groups
-  mytimes <- c(mytimes.C, mytimes.T)
+  mytimes = c(mytimes.C, mytimes.T)
 
-## Censoring with combination of administrative censoring and specific censoring
-## rate
-  # Administrative censoring
-  cens.times.AC <- runif(n.C+n.T, min = 0, max = accrual.time) + fu.time
-
-  # Help Data Frame
-  Data.help <- data.frame(id = 1:(n.C + n.T), T = mytimes,
-                          Z = factor(c(rep("Control",n.C), rep("Treatment",n.T))),
-                          C = cens.times.AC)
-  Data.help$status <- factor(as.numeric(Data.help$T <= Data.help$C))
-  Data.help$TandC  <- pmin(Data.help$T,Data.help$C)
-
-  # Specific censoring rate of the remaining events "mytimes.AC"
-    mytimes.AC    <- Data.help$T[which(Data.help$status==1)]
-    # calculating needed censoring rate to receive overall censoring rate of
-    # cens.rate
-    current.CensoringRate <- 1 # of Data.help$status==1 --> always 100%
-    needed.CensoringRate  <-
-      (cens.rate * dim(Data.help)[1] -
-         sum(Data.help$status==0)*current.CensoringRate) /
-      sum(Data.help$status==1)
-    # if administrative censoring rate is already larger than wanted censoring
-    # rate of cens.rate, no specific censoring rate is added
-    if (needed.CensoringRate > 0){
-      cens.times.SC <-
-        sapply(mytimes.AC,
-               function(mytimes.AC, needed.CensoringRate){
-                 rexp(1, rate = -log(1-needed.CensoringRate)/mytimes.AC)
-               },
-               needed.CensoringRate)
-    }else{
-      # if administrative censoring rate is already larger than wanted censoring
-      # rate of cens.rate, no specific censoring rate is added
-      # --> Setting censoring added censoring rates to Infinity
-      # --> event rates are always smaller than specific censoring rates
-      cens.times.SC <- rep(Inf, length(mytimes.AC))
-    }
-
+## Censoring with combination of administrative censoring and independent 
+## exponential censoring
+  # Censoring and accrual time 
+  cens.time <- c(rexp(n.C, rate = lambda.cens),
+                 rexp(n.T, rate = lambda.cens))
+  acc.time  <- runif(n.C+n.T, min = 0, max = accrual.time)
+  
 ## Final data frame
-  Data <- Data.help
-  Data$C[which(Data$status==1)] <- cens.times.SC
-  Data$status <- factor(as.numeric(Data$T <= Data$C))
-  Data$TandC  <- pmin(Data$T,Data$C)
-
+  Data <- data.frame(
+    id = 1:(n.C + n.T), 
+    T = mytimes, 
+    Z = factor(c(rep("Control",n.C), rep("Treatment",n.T))),
+    cens.time = cens.time, acc.time = acc.time
+  )
+  Data$TandC  <- pmin(Data$T, Data$cens.time, fu.time+accrual.time - Data$acc.time)
+  Data$status <- factor(ifelse(Data$T<=pmin(Data$cens.time, fu.time+accrual.time - Data$acc.time), 1, 0))
+  
   Data.out <- data.frame(Data$TandC, Data$status, Data$Z)
 
 ## Returning data
-return(Data.out)
+  return(Data.out)
 }
 
 #------------ Data Generation of Gompertz distributed failure times ------------
+#--------------- with a combination of administrative censoring ----------------
+#-------------------- and independent exponential censoring --------------------
 DataGomp <- function(n.T, n.C, median.control, accrual.time, fu.time, HR, HR.var,
-                     cens.rate, shape.C.T, index.seed) {
+                     lambda.cens, shape.C.T, index.seed) {
 ## Generating of survival data with Gompertz distributed failure times
-## with censoring (administrative and specific censoring)
+## with censoring (administrative and independent exponential censoring)
 ## Parameters:
   # n.T:            number of patients in treatment group
   # n.C:            number of patients in control group
@@ -239,7 +195,7 @@ DataGomp <- function(n.T, n.C, median.control, accrual.time, fu.time, HR, HR.var
   # HR:             hazard ratio of treatment against control
   # HR.var:         variation of the true HR and design HR.
   #                     0 --> design.HR = true.HR
-  # cens.rate:      censoring rate, censoring exponential distributed
+  # lambda.cens:    lambda of exponential distributed censoring
   # shape.C.T:      shape parameter for control and treatment group
   # index.seed:     seed for the simulation
 
@@ -247,72 +203,51 @@ DataGomp <- function(n.T, n.C, median.control, accrual.time, fu.time, HR, HR.var
   set.seed(index.seed)
 
 ## Event times
-  mytimes.C <-
-    rgompertz(n.C, shape = shape.C.T,
-              rate = shape.C.T*log(2) / (exp(median.control*shape.C.T)-1) )
-  mytimes.T <-
-    rgompertz(n.C, shape = shape.C.T,
-              rate = (HR*HR.var)*shape.C.T*log(2) / (exp(median.control*shape.C.T)-1) )
+  mytimes.C = rgompertz(
+    n.C,
+    shape = shape.C.T,
+    rate = shape.C.T*log(2) / (exp(median.control*shape.C.T)-1) 
+  )
+  mytimes.T = rgompertz(
+    n.C, 
+    shape = shape.C.T, 
+    rate = (HR*HR.var)*shape.C.T*log(2) / (exp(median.control*shape.C.T)-1)
+  )
   # Combining event times of both groups
   mytimes   <- c(mytimes.C, mytimes.T)
 
-  ## Censoring with combination of administrative censoring and specific
-  ## censoring rate
-  # Administrative censoring
-  cens.times.AC <- runif(n.C+n.T, min = 0, max = accrual.time) + fu.time
-
-  # Help Data Frame
-  Data.help <- data.frame(id = 1:(n.C + n.T), T = mytimes,
-                          Z = factor(c(rep("Control",n.C), rep("Treatment",n.T))),
-                          C = cens.times.AC)
-  Data.help$status <- factor(as.numeric(Data.help$T <= Data.help$C))
-  Data.help$TandC  <- pmin(Data.help$T,Data.help$C)
-
-  # Specific censoring rate of the remaining events "mytimes.AC"
-      mytimes.AC <- Data.help$T[which(Data.help$status==1)]
-      # calculating needed censoring rate to receive overall censoring rate of
-      # cens.rate
-      current.CensoringRate <- 1 # of Data.help$status==1 --> always 100%
-      needed.CensoringRate  <-
-        (cens.rate * dim(Data.help)[1] -
-           sum(Data.help$status==0)*current.CensoringRate) /
-        sum(Data.help$status==1)
-      # if administrative censoring rate is already larger than wanted censoring
-      # rate of cens.rate, no specific censoring rate is added
-      if (needed.CensoringRate > 0){
-        cens.times.SC <-
-          sapply(mytimes.AC,
-                 function(mytimes.AC, needed.CensoringRate){
-                   rexp(1, rate = -log(1-needed.CensoringRate)/mytimes.AC)
-                 },
-                 needed.CensoringRate)
-      }else{
-        # if administrative censoring rate is already larger than wanted
-        # censoring rate of cens.rate, no specific censoring rate is added
-        # --> Setting censoring added censoring rates to Infinity
-        # --> event rates are always smaller than specific censoring rates
-        cens.times.SC <- rep(Inf, length(mytimes.AC))
-      }
-
+## Censoring with combination of administrative censoring and independent 
+## exponential censoring
+  # Censoring and accrual time 
+  cens.time <- c(rexp(n.C, rate = lambda.cens),
+                 rexp(n.T, rate = lambda.cens))
+  acc.time  <- runif(n.C+n.T, min = 0, max = accrual.time)
+  
 ## Final data frame
-  Data <- Data.help
-  Data$C[which(Data$status==1)] <- cens.times.SC
-  Data$status <- factor(as.numeric(Data$T <= Data$C))
-  Data$TandC  <- pmin(Data$T,Data$C)
-
-  Data.out = data.frame(Data$TandC, Data$status, Data$Z)
-
+  Data <- data.frame(
+    id = 1:(n.C + n.T),
+    T = mytimes,
+    Z = factor(c(rep("Control",n.C), rep("Treatment",n.T))),
+    cens.time = cens.time, acc.time = acc.time
+  )
+  Data$TandC  <- pmin(Data$T, Data$cens.time, fu.time+accrual.time - Data$acc.time)
+  Data$status <- factor(ifelse(Data$T<=pmin(Data$cens.time, fu.time+accrual.time - Data$acc.time), 1, 0))
+  
+  Data.out <- data.frame(Data$TandC, Data$status, Data$Z)
+  
 ## Returning data
   return(Data.out)
 }
 
 #---------- Data Generation of exponential distributed failure times -----------
 #-------------------------- (non-proportional hazards) -------------------------
+#--------------- with a combination of administrative censoring ----------------
+#-------------------- and independent exponential censoring --------------------
 DataEXPNonProp = function(n.T, n.C, median.control, accrual.time, fu.time, HR,
-                          HR.var, effect.start.T, cens.rate, index.seed) {
+                          HR.var, effect.start.T, lambda.cens, index.seed) {
 ## Generating of survival data with exponential distributed failure times
-## with censoring (administrative and specific censoring) and non-proportional
-## hazards (late treatment effect)
+## with censoring (administrative and independent exponential censoring)
+## and non-proportional hazards (late treatment effect)
 ## Parameters:
   # n.T:            number of patients in treatment group
   # n.C:            number of patients in control group
@@ -324,7 +259,7 @@ DataEXPNonProp = function(n.T, n.C, median.control, accrual.time, fu.time, HR,
   #                     0 --> design.HR = true.HR
   # effect.start.T: start of treatment effect of treatment group
   #                 (late treatment effect)
-  # cens.rate:      censoring rate, censoring exponential distributed
+  # lambda.cens:    lambda of exponential distributed censoring
   # index.seed:     seed for the simulation
 
 ## Setting seed
@@ -343,61 +278,33 @@ DataEXPNonProp = function(n.T, n.C, median.control, accrual.time, fu.time, HR,
     )
   }
   U <- runif(n.T, min = 0, max = 1)
-  mytimes.T <- Inv.T(y = U,
-                     lambda.C = log(2)/median.control,
-                     lambda.T = (HR*HR.var)*log(2)/median.control,
+  mytimes.T <- Inv.T(y = U, 
+                     lambda.C = log(2)/median.control, 
+                     lambda.T = (HR*HR.var)*log(2)/median.control, 
                      treat.start = effect.start.T)
-  # Combining event times of both groups
+  # combining event times of both groups
   mytimes   <- c(mytimes.C, mytimes.T)
 
 
-
-## Censoring with combination of administrative censoring and specific censoring
-## rate
-  # Administrative censoring
-  cens.times.AC <- runif(n.C+n.T, min = 0, max = accrual.time) + fu.time
-
-  # Help data frame
-  Data.help <- data.frame(id = 1:(n.C + n.T), T = mytimes,
-                          Z = factor(c(rep("Control",n.C), rep("Treatment",n.T))),
-                          C = cens.times.AC)
-  Data.help$status <- factor(as.numeric(Data.help$T <= Data.help$C))
-  Data.help$TandC  <- pmin(Data.help$T,Data.help$C)
-
-  # Specific censoring rate of the remaining events "mytimes.AC"
-    mytimes.AC    <- Data.help$T[which(Data.help$status==1)]
-    # calculating needed censoring rate to recieve overall censoring rate of
-    # cens.rate
-    current.CensoringRate <- 1 # of Data.help$status==1 --> always 100%
-    needed.CensoringRate  <-
-      (cens.rate * dim(Data.help)[1] -
-         sum(Data.help$status==0)*current.CensoringRate) /
-      sum(Data.help$status==1)
-    # if administrative censoring rate is already larger than wanted censoring
-    # rate of cens.rate, no specific censoring rate is added
-    if (needed.CensoringRate > 0){
-      cens.times.SC <-
-        sapply(mytimes.AC,
-               function(mytimes.AC, needed.CensoringRate){
-                 rexp(1, rate = -log(1-needed.CensoringRate)/mytimes.AC)
-               },
-               needed.CensoringRate)
-    }else{
-      # if administrative censoring rate is already larger than wanted censoring
-      # rate of cens.rate, no specific censoring rate is added
-      # --> Setting censoring added censoring rates to Infinity
-      # --> event rates are always smaller than specific censoring rates
-      cens.times.SC <- rep(Inf, length(mytimes.AC))
-    }
-
+## Censoring with combination of administrative censoring and independent 
+## exponential censoring
+  # Censoring and accrual time 
+  cens.time <- c(rexp(n.C, rate = lambda.cens),
+                 rexp(n.T, rate = lambda.cens))
+  acc.time  <- runif(n.C+n.T, min = 0, max = accrual.time)
+  
 ## Final data frame
-  Data <- Data.help
-  Data$C[which(Data$status==1)] <- cens.times.SC
-  Data$status <- factor(as.numeric(Data$T <= Data$C))
-  Data$TandC  <- pmin(Data$T,Data$C)
-
+  Data <- data.frame(
+    id = 1:(n.C + n.T), 
+    T = mytimes, 
+    Z = factor(c(rep("Control",n.C), rep("Treatment",n.T))),
+    cens.time = cens.time, acc.time = acc.time
+  )
+  Data$TandC  <- pmin(Data$T, Data$cens.time, fu.time+accrual.time - Data$acc.time)
+  Data$status <- factor(ifelse(Data$T<=pmin(Data$cens.time, fu.time+accrual.time - Data$acc.time), 1, 0))
+  
   Data.out <- data.frame(Data$TandC, Data$status, Data$Z)
-
+  
 ## Returning data
   return(Data.out)
 }
