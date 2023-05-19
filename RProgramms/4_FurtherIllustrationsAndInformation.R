@@ -19,7 +19,7 @@ results_final <- readRDS("Results.rds")
 # Figure 2 with an additional figure which has the same layout but displays the absolute
 # difference.
 results_final %>%
-   filter(Scenario %in%  c("Scen_1") & cens.rate %in% c(0.2, 0.6) & beta == 0.1) %>%
+   filter(Scenario %in%  c("StandardScen") & cens.rate %in% c(0.2, 0.6) & beta == 0.1) %>%
    dplyr::select(beta, HR, med.C, Scenario, shape.C.T, HR.var, cens.rate,
                  pow, perc.IQWiG.max, perc.Mod.IQWiG.max, perc.ESMO.max,
                  perc.ESMO.RB.max
@@ -96,7 +96,7 @@ results_final %>%
 
 
 results_final %>%
-   filter(Scenario %in%  c("Scen_1") & cens.rate %in% c(0.2, 0.6) & beta == 0.1) %>%
+   filter(Scenario %in%  c("StandardScen") & cens.rate %in% c(0.2, 0.6) & beta == 0.1) %>%
    mutate(
       Diff_IQWiG     = perc.IQWiG.max - perc.ESMO.max,
       Diff_Mod.IQWiG = perc.Mod.IQWiG.max - perc.ESMO.max,

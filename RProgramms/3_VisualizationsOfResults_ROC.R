@@ -20,7 +20,7 @@ path_ROC  <- "" # e.g. ".../Simulations/Data/"
 source("0_CostumeFunctions_Analysis.R")
 
 ## Loading parameters and order them
-parameters  <- readRDS(paste0(path_ROC, "Scen1_parameters.rds"))
+parameters  <- readRDS(paste0(path_ROC, "StandardScen_parameters.rds"))
 parameters_ordered <- parameters[order(parameters$beta, parameters$accrual.time,
                                        parameters$fu.time, parameters$cens.rate,
                                        parameters$r, parameters$med.C,
@@ -171,7 +171,7 @@ for(k in k_it){
     para <- parameters.k[j,]
     ### Load data of sub-scenarios with "n_sim" times replicates
     df.loaded <- readRDS(paste0(path_ROC,
-                                "Scen1_Data",
+                                "StandardScen_Data",
                                 "..beta.",        para$beta,
                                 ".accrual.time.", para$accrual.time,
                                 ".fu.time.",      para$fu.time,
