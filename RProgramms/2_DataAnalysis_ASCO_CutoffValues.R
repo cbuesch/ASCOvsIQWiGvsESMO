@@ -19,7 +19,7 @@ num.cl <- 48
 path_ana  <- "" # e.g. ".../Simulations/Ana/"
 
 # Saving path of ASCO cutoff values
-path_saving <- "" # e.g. ".../Simulations/"
+path_saving_cutoffs <- "" # e.g. ".../Simulations/"
 
 
 
@@ -475,6 +475,6 @@ for (i in rownames(results_cutpoints)) {
 
 ### saving the complete results
 saveRDS(results_cutpoints,
-        file = paste0(path_saving, "Results_ASCOCutoffValues.rds"))
+        file = paste0(path_saving_cutoffs, "Results_ASCOCutoffValues.rds"))
 
 
